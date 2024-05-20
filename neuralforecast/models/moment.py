@@ -435,18 +435,18 @@ class MOMENT_module(nn.Module):
         self.encoder = self._get_transformer_backbone(config)
         self.head = self._get_head(self.task_name)
 
-        # Frozen parameters
-        self.patch_embedder = config.getattr("patch_embedder", True)
+        ## Frozen parameters
+        self.freeze_embedder = config.getattr("freeze_embedder", True)
         self.freeze_encoder = config.getattr("freeze_encoder", True)
         self.freeze_head = config.getattr("freeze_head", False)
 
-        if self.patch_embedder:
-            self.freeze_embedding = freeze_parameters(self.freeze_embedding)
+        if self.freeze_embedder:
+            self.patch_embedding = freeze_parameters(self.patch_embedding)
         if self.freeze_encoder:
             self.encoder = freeze_parameters(self.encoder)
         if self.freeze_head:
             self.head = freeze_parameters(self.head)
-
+            
     def _update_inputs(
         self, config: Union[Namespace, dict], **kwargs: dict
     ) -> NamespaceWithDefaults:
@@ -803,6 +803,8 @@ class MOMENT(BaseWindows):
                 "task_name": "forecasting",
                 "forecast_horizon": h,
                 "seq_len": input_size,
+                'head_dropout': 0.1,
+                'weight_decay': 0,
             },
         )
         moment.init()
@@ -810,14 +812,14 @@ class MOMENT(BaseWindows):
 
     def forward(self, windows_batch):
         # Parse windows_batch
-        x = windows_batch["insample_y"].unsqueeze(-1)  #   [B, L, 1]
-        x_enc = x.permute(0, 2, 1)  #   [B, L, 1] -> [B, 1, L]
-
-        #  Run MOMENT
-        output = self.moment(x_enc)
+        x_enc = windows_batch["insample_y"].unsqueeze(-2)  #   [B, 1, L]
+        input_mask = windows_batch["insample_mask"] # [B, L]
+        
+        # Run MOMENT
+        output = self.moment(x_enc=x_enc, input_mask=input_mask)
 
         # Map to output domain
-        output = output.forecast.permute(0, 2, 1)  # [B, 1, h] -> [B, h, 1]
+        output = output.forecast.squeeze()  # [B, 1, h] -> [B, h]
         forecast = self.loss.domain_map(output)
 
         return forecast
