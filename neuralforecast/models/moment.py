@@ -256,12 +256,12 @@ class PositionalEmbedding(nn.Module):
 class PatchEmbedding(nn.Module):
     def __init__(
         self,
-        d_model: int = 768,
+        d_model: int = 1024,
         seq_len: int = 512,
         patch_len: int = 8,
         stride: int = 8,
         dropout: float = 0.1,
-        add_positional_embedding: bool = False,
+        add_positional_embedding: bool = True,
         value_embedding_bias: bool = False,
         orth_gain: float = 1.41,
     ):
@@ -367,11 +367,10 @@ SUPPORTED_HUGGINGFACE_MODELS = [
     "google/flan-t5-xxl",
 ]
 
-
 class PretrainHead(nn.Module):
     def __init__(
         self,
-        d_model: int = 768,
+        d_model: int = 1024,
         patch_len: int = 8,
         head_dropout: float = 0.1,
         orth_gain: float = 1.41,
@@ -392,7 +391,7 @@ class PretrainHead(nn.Module):
 
 class ForecastingHead(nn.Module):
     def __init__(
-        self, head_nf: int = 768 * 64, forecast_horizon: int = 96, head_dropout: int = 0
+        self, head_nf: int = 1024 * 64, forecast_horizon: int = 96, head_dropout: int = 0
     ):
         super().__init__()
         self.flatten = nn.Flatten(start_dim=-2)
@@ -435,6 +434,18 @@ class MOMENT_module(nn.Module):
         self.mask_generator = Masking(mask_ratio=config.getattr("mask_ratio", 0.0))
         self.encoder = self._get_transformer_backbone(config)
         self.head = self._get_head(self.task_name)
+
+        # Frozen parameters
+        self.patch_embedder = config.getattr("patch_embedder", True)
+        self.freeze_encoder = config.getattr("freeze_encoder", True)
+        self.freeze_head = config.getattr("freeze_head", False)
+
+        if self.patch_embedder:
+            self.freeze_embedding = freeze_parameters(self.freeze_embedding)
+        if self.freeze_encoder:
+            self.encoder = freeze_parameters(self.encoder)
+        if self.freeze_head:
+            self.head = freeze_parameters(self.head)
 
     def _update_inputs(
         self, config: Union[Namespace, dict], **kwargs: dict
@@ -641,6 +652,16 @@ if IS_TRANSFORMERS_INSTALLED:
             if self.new_task_name != TASKS.RECONSTRUCTION:
                 self.task_name = self.new_task_name
                 self.head = self._get_head(self.new_task_name)
+
+def freeze_parameters(model):
+    """
+    Freeze parameters of the model
+    """
+    # Freeze the parameters
+    for name, param in model.named_parameters():
+        param.requires_grad = False
+
+    return model
 
 # %% ../../nbs/models.moment.ipynb 19
 class MOMENT(BaseWindows):
